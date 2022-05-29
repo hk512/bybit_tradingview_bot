@@ -28,8 +28,8 @@ def run():
         }), 400
 
     trader = Trader(
-        key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, side=side,
-        leverage=config.leverage
+        key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
+        side=side, leverage=config.leverage
     )
 
     close_position_result = trader.close_position()
@@ -56,13 +56,13 @@ def run():
 
 
 class Trader(object):
-    def __init__(self, key, secret, symbol, lot, side, leverage):
+    def __init__(self, key, secret, symbol, lot, max_lot, side, leverage):
         self.symbol = symbol
         self.client = pybybit.API(key=key, secret=secret, testnet=False)
 
         # 1オーダ当たりの発注量、単位はBTC
         self.lot = lot
-
+        self.max_lot = max_lot
         self.side = side
 
         # # クロスマージンモードに設定
@@ -135,6 +135,15 @@ class Trader(object):
 
     def create_position(self, max_iteration=10):
         for _ in range(max_iteration):
+
+            size = self.get_position_size(side=self.side)
+
+            if size is None:
+                continue
+
+            if size >= self.max_lot:
+                return True
+
             result = self.order(side=self.side, size=self.lot, reduce_only=False)
             if result:
                 return True
