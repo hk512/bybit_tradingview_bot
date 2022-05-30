@@ -53,7 +53,7 @@ def run():
 
     trader = Trader(
         key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
-        side=side, leverage=config.leverage
+        side=side, leverage=config.leverage, derivative_type=config.derivative_type
     )
 
     close_position_result = trader.close_position()
@@ -80,7 +80,7 @@ def run():
 
 
 class Trader(object):
-    def __init__(self, key, secret, symbol, lot, max_lot, side, leverage):
+    def __init__(self, key, secret, symbol, lot, max_lot, side, leverage, derivative_type):
         self.symbol = symbol
         self.client = pybybit.API(key=key, secret=secret, testnet=False)
 
@@ -88,6 +88,7 @@ class Trader(object):
         self.lot = lot
         self.max_lot = max_lot
         self.side = side
+        self.derivative_type = derivative_type
 
         # # クロスマージンモードに設定
         # self.client.rest.linear.private_position_switchisolated(symbol=symbol, is_isolated=False,
@@ -129,9 +130,15 @@ class Trader(object):
 
     def order(self, side, size, reduce_only):
 
-        response = self.client.rest.linear.private_order_create(
-            side=side, symbol=self.symbol, order_type="Market", qty=size, reduce_only=reduce_only,
-            time_in_force='GoodTillCancel', close_on_trigger=False)
+        if self.derivative_type == 'linear':
+            response = self.client.rest.linear.private_order_create(
+                side=side, symbol=self.symbol, order_type="Market", qty=size, reduce_only=reduce_only,
+                time_in_force='GoodTillCancel', close_on_trigger=False)
+
+        elif self.derivative_type == 'inverse':
+            response = self.client.rest.inverse.private_order_create(
+                side=side, symbol=self.symbol, order_type="Market", qty=size, reduce_only=reduce_only,
+                time_in_force='GoodTillCancel', close_on_trigger=False)
 
         if response.status_code != 200:
             logger.error({
