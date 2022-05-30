@@ -280,19 +280,19 @@ class Notificator(object):
 
 
 if __name__ == '__main__':
-    # parser = ArgumentParser()
-    # parser.add_argument('-p', '--port', default=80, type=int, help='port to listen on')
-    # parser.add_argument('-i', '--ip', default='0.0.0.0', type=str, help='ip to listen on')
-    # args = parser.parse_args()
-    # port = args.port
-    # ip = args.ip
-    #
-    # app.run(host=ip, port=port, threaded=True, debug=True)
+    parser = ArgumentParser()
+    parser.add_argument('-p', '--port', default=80, type=int, help='port to listen on')
+    parser.add_argument('-i', '--ip', default='0.0.0.0', type=str, help='ip to listen on')
+    args = parser.parse_args()
+    port = args.port
+    ip = args.ip
 
-    trader = Trader(
-        key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
-        leverage=config.leverage, derivative_type=config.derivative_type
-    )
+    app.run(host=ip, port=port, threaded=True, debug=True)
+
+    # trader = Trader(
+    #     key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
+    #     leverage=config.leverage, derivative_type=config.derivative_type
+    # )
 
     # trader.create_position(side='Sell')
     # trader.create_position(side='Sell')
