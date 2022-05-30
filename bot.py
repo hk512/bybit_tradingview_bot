@@ -1,7 +1,9 @@
 from argparse import ArgumentParser
+import ipaddress
 import logging
 import sys
 
+from flask import abort
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -14,6 +16,28 @@ app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='[%(levelname)s][%(asctime)s] %(message)s')
 logger = logging.getLogger(__name__)
+
+# アクセスを許可するIPアドレス(TradingView)
+ALLOW_NETWORKS = [
+    '52.89.214.238',
+    '34.212.75.30',
+    '54.218.53.128',
+    '52.32.178.7'
+]
+
+
+@app.before_request
+def before_request():
+    remote_address = ipaddress.ip_address(request.remote_addr)
+    for allow_network in ALLOW_NETWORKS:
+        ip_network = ipaddress.ip_network(allow_network)
+        if remote_address in ip_network:
+            return
+
+    notificator = Notificator(token=config.line_token)
+    notificator.notify(message=f'accessed from an unauthorized IP({remote_address}) address')
+
+    return abort(403, 'access denied your IP address')
 
 
 @app.route('/', methods=['POST'])
