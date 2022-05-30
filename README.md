@@ -11,9 +11,10 @@ api_key = (APIキー)
 api_secret = (シークレットキー)
 
 [trade]
-symbol = BTCUSDT
-lot = 0.001
-max_lot = 0.01
+symbol = BTCUSD
+derivative_type = 'inverse'
+lot = 100
+max_lot = 1000
 leverage = 10
 
 [line]
