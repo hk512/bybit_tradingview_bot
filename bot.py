@@ -25,6 +25,13 @@ ALLOW_NETWORKS = [
     '52.32.178.7'
 ]
 
+SIGNALS = [
+    'Buy',
+    'Sell',
+    'Buy Exit',
+    'Sell Exit'
+]
+
 
 @app.before_request
 def before_request():
@@ -42,37 +49,77 @@ def before_request():
 
 @app.route('/', methods=['POST'])
 def run():
-    side = request.data.decode()
+    signal = request.data.decode()
 
-    if side != 'Buy' and side != 'Sell':
+    if signal not in SIGNALS:
         notificator = Notificator(token=config.line_token)
-        notificator.notify(message=f'signal({side}) is incorrect.')
+        notificator.notify(message=f'signal({signal}) is incorrect.')
         return jsonify({
             'result': -1
         }), 400
 
     trader = Trader(
         key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
-        side=side, leverage=config.leverage, derivative_type=config.derivative_type
+        leverage=config.leverage, derivative_type=config.derivative_type
     )
 
-    close_position_result = trader.close_position()
+    if signal == 'Buy':
 
-    if not close_position_result:
-        notificator = Notificator(token=config.line_token)
-        notificator.notify(message='failed close position.')
-        return jsonify({
-            'result': -1
-        }), 400
+        close_position_result = trader.close_position('Sell')
 
-    create_position_result = trader.create_position()
+        if not close_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed close position.')
+            return jsonify({
+                'result': -1
+            }), 400
 
-    if not create_position_result:
-        notificator = Notificator(token=config.line_token)
-        notificator.notify(message='failed create position.')
-        return jsonify({
-            'result': -1
-        }), 400
+        create_position_result = trader.create_position('Buy')
+
+        if not create_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed create position.')
+            return jsonify({
+                'result': -1
+            }), 400
+
+    elif signal == 'Sell':
+        close_position_result = trader.close_position('Buy')
+
+        if not close_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed close position.')
+            return jsonify({
+                'result': -1
+            }), 400
+
+        create_position_result = trader.create_position('Sell')
+
+        if not create_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed create position.')
+            return jsonify({
+                'result': -1
+            }), 400
+
+    elif signal == 'Buy Exit':
+        close_position_result = trader.close_position('Buy')
+
+        if not close_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed close position.')
+            return jsonify({
+                'result': -1
+            }), 400
+    elif signal == 'Sell Exit':
+        close_position_result = trader.close_position('Sell')
+
+        if not close_position_result:
+            notificator = Notificator(token=config.line_token)
+            notificator.notify(message='failed close position.')
+            return jsonify({
+                'result': -1
+            }), 400
 
     return jsonify({
         'result': 0
@@ -80,14 +127,15 @@ def run():
 
 
 class Trader(object):
-    def __init__(self, key, secret, symbol, lot, max_lot, side, leverage, derivative_type):
+    # def __init__(self, key, secret, symbol, lot, max_lot, side, leverage, derivative_type):
+    def __init__(self, key, secret, symbol, lot, max_lot, leverage, derivative_type):
         self.symbol = symbol
         self.client = pybybit.API(key=key, secret=secret, testnet=False)
 
         # 1オーダ当たりの発注量、単位はBTC
         self.lot = lot
         self.max_lot = max_lot
-        self.side = side
+        # self.side = side
         self.derivative_type = derivative_type
 
         # # クロスマージンモードに設定
@@ -98,7 +146,10 @@ class Trader(object):
                                                              sell_leverage=leverage)
 
     def get_position_size(self, side):
-        response = self.client.rest.linear.private_position_list(symbol=self.symbol)
+        if self.derivative_type == 'linear':
+            response = self.client.rest.linear.private_position_list(symbol=self.symbol)
+        elif self.derivative_type == 'inverse':
+            response = self.client.rest.inverse.private_position_list(symbol=self.symbol)
 
         if response.status_code != 200:
             logger.error({
@@ -123,10 +174,19 @@ class Trader(object):
         })
 
         result = response_data['result']
-        if side == 'Buy':
-            return result[0]['size']
-        elif side == 'Sell':
-            return result[1]['size']
+
+        if self.derivative_type == 'linear':
+            if side == 'Buy':
+                return result[0]['size']
+            elif side == 'Sell':
+                return result[1]['size']
+        elif self.derivative_type == 'inverse':
+            size = result['size']
+
+            if side == result['side']:
+                return result['size']
+            else:
+                return 0
 
     def order(self, side, size, reduce_only):
 
@@ -137,7 +197,7 @@ class Trader(object):
 
         elif self.derivative_type == 'inverse':
             response = self.client.rest.inverse.private_order_create(
-                side=side, symbol=self.symbol, order_type="Market", qty=size, reduce_only=reduce_only,
+                side=side, symbol=self.symbol, order_type="Market", qty=int(size),
                 time_in_force='GoodTillCancel', close_on_trigger=False)
 
         if response.status_code != 200:
@@ -164,10 +224,10 @@ class Trader(object):
 
         return True
 
-    def create_position(self, max_iteration=10):
+    def create_position(self, side, max_iteration=10):
         for _ in range(max_iteration):
 
-            size = self.get_position_size(side=self.side)
+            size = self.get_position_size(side=side)
 
             if size is None:
                 continue
@@ -175,18 +235,16 @@ class Trader(object):
             if size >= self.max_lot:
                 return True
 
-            result = self.order(side=self.side, size=self.lot, reduce_only=False)
+            result = self.order(side=side, size=self.lot, reduce_only=False)
             if result:
                 return True
 
         return False
 
-    def close_position(self, max_iteration=10):
+    def close_position(self, side, max_iteration=10):
         for _ in range(max_iteration):
-            if self.side == 'Buy':
-                size = self.get_position_size(side='Sell')
-            elif self.side == 'Sell':
-                size = self.get_position_size(side='Buy')
+
+            size = self.get_position_size(side=side)
 
             if size is None:
                 continue
@@ -194,7 +252,10 @@ class Trader(object):
             if size == 0:
                 return True
 
-            result = self.order(side=self.side, size=size, reduce_only=True)
+            if side == 'Buy':
+                result = self.order(side='Sell', size=size, reduce_only=True)
+            elif side == 'Sell':
+                result = self.order(side='Buy', size=size, reduce_only=True)
 
             if result:
                 return True
@@ -219,11 +280,20 @@ class Notificator(object):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser()
-    parser.add_argument('-p', '--port', default=80, type=int, help='port to listen on')
-    parser.add_argument('-i', '--ip', default='0.0.0.0', type=str, help='ip to listen on')
-    args = parser.parse_args()
-    port = args.port
-    ip = args.ip
+    # parser = ArgumentParser()
+    # parser.add_argument('-p', '--port', default=80, type=int, help='port to listen on')
+    # parser.add_argument('-i', '--ip', default='0.0.0.0', type=str, help='ip to listen on')
+    # args = parser.parse_args()
+    # port = args.port
+    # ip = args.ip
+    #
+    # app.run(host=ip, port=port, threaded=True, debug=True)
 
-    app.run(host=ip, port=port, threaded=True, debug=True)
+    trader = Trader(
+        key=config.api_key, secret=config.api_secret, symbol=config.symbol, lot=config.lot, max_lot=config.max_lot,
+        leverage=config.leverage, derivative_type=config.derivative_type
+    )
+
+    # trader.create_position(side='Sell')
+    # trader.create_position(side='Sell')
+    # trader.close_position(side='Sell')
